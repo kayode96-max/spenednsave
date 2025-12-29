@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useAccount } from "wagmi";
+import { useUserContracts, useAddGuardian, useVaultQuorum } from "@/lib/hooks/useContracts";
 import { Users, ShieldCheck, Clock, Plus, Trash2, Key, History } from "lucide-react";
 
 interface Guardian {
@@ -8,39 +10,50 @@ interface Guardian {
     name: string;
     address: string;
     status: 'active' | 'pending';
-    lastActive?: string;
-    txCount?: number;
-    isHardware?: boolean;
 }
 
 export function ManageGuardiansView() {
-    const [guardians, setGuardians] = useState<Guardian[]>([
-        { id: "1", name: "alice.base.eth", address: "0x4F...3B19", status: "active", lastActive: "2 days ago", txCount: 12 },
-        { id: "2", name: "bob.lens", address: "0x3A...B789", status: "active", lastActive: "5 days ago", txCount: 8 },
-        { id: "3", name: "charlie_savings", address: "0x99...12D4", status: "active", lastActive: "1 week ago", txCount: 3, isHardware: true },
-    ]);
+    const { address } = useAccount();
+    const { data: userContracts } = useUserContracts(address as any);
+    const guardianTokenAddress = userContracts ? (userContracts as any)[0] : undefined;
+    const vaultAddress = userContracts ? (userContracts as any)[1] : undefined;
+    const { data: quorum } = useVaultQuorum(vaultAddress);
 
+    const { addGuardian, isPending, isConfirming, isSuccess } = useAddGuardian(guardianTokenAddress);
+    
+    const [guardians, setGuardians] = useState<Guardian[]>([]);
     const [isAdding, setIsAdding] = useState(false);
     const [newGuardian, setNewGuardian] = useState({ name: "", address: "" });
 
+    // Close modal and reset form after successful add
+    useEffect(() => {
+        if (isSuccess) {
+            setNewGuardian({ name: "", address: "" });
+            setIsAdding(false);
+            // Add to local list
+            if (newGuardian.address) {
+                setGuardians(prev => [...prev, {
+                    id: newGuardian.address,
+                    name: newGuardian.name || "Guardian",
+                    address: newGuardian.address,
+                    status: 'active'
+                }]);
+            }
+        }
+    }, [isSuccess]);
+
     const handleAdd = () => {
-        if (!newGuardian.address) return;
-        const g: Guardian = {
-            id: Math.random().toString(),
-            name: newGuardian.name || "Guardian",
-            address: newGuardian.address,
-            status: "pending",
-            txCount: 0
-        };
-        setGuardians([...guardians, g]);
-        setNewGuardian({ name: "", address: "" });
-        setIsAdding(false);
+        if (!newGuardian.address || !guardianTokenAddress) return;
+        try {
+            addGuardian(newGuardian.address as any);
+        } catch (error) {
+            console.error("Add guardian failed:", error);
+            alert(error instanceof Error ? error.message : "Failed to add guardian");
+        }
     };
 
     const handleRevoke = (id: string) => {
-        if (confirm("Are you sure you want to revoke this guardian?")) {
-            setGuardians(guardians.filter(g => g.id !== id));
-        }
+        alert("Revoke guardian functionality requires the burn() function to be called with the tokenId. This feature needs guardian token enumeration.");
     };
 
     return (
@@ -70,7 +83,7 @@ export function ManageGuardiansView() {
                     </div>
                     <div className="mt-4">
                         <h3 className="text-3xl font-bold text-slate-900 dark:text-white">{guardians.length}</h3>
-                        <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">Active Keys</p>
+                        <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">Guardians Added</p>
                     </div>
                 </div>
 
@@ -82,7 +95,7 @@ export function ManageGuardiansView() {
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Policy</span>
                     </div>
                     <div className="mt-4">
-                        <h3 className="text-3xl font-bold text-slate-900 dark:text-white">2 <span className="text-lg text-slate-400 dark:text-slate-500">of {guardians.length}</span></h3>
+                        <h3 className="text-3xl font-bold text-slate-900 dark:text-white">{quorum?.toString() || "2"} <span className="text-lg text-slate-400 dark:text-slate-500">of {guardians.length || "3"}</span></h3>
                         <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">Signatures Required</p>
                     </div>
                 </div>
@@ -133,23 +146,44 @@ export function ManageGuardiansView() {
                             </div>
                             <div className="flex justify-end gap-2">
                                 <button onClick={() => setIsAdding(false)} className="px-4 py-2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium">Cancel</button>
-                                <button onClick={handleAdd} className="px-6 py-2 bg-primary hover:bg-primary-hover text-white rounded-xl font-bold">Add Guardian</button>
+                                <button 
+                                    onClick={handleAdd}
+                                    disabled={isPending || isConfirming || !newGuardian.address}
+                                    className="px-6 py-2 bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-bold"
+                                >
+                                    {isPending || isConfirming ? "Adding..." : "Add Guardian"}
+                                </button>
                             </div>
                         </div>
                     )}
 
                     <div className="flex flex-col gap-4">
-                        {guardians.map((g) => (
+                        {guardians.length === 0 ? (
+                            <div className="bg-white dark:bg-surface-dark border border-slate-200 dark:border-surface-border rounded-2xl p-12 text-center">
+                                <div className="size-16 rounded-full bg-slate-100 dark:bg-surface-border/50 flex items-center justify-center text-slate-400 mx-auto mb-4">
+                                    <Users size={32} />
+                                </div>
+                                <h3 className="text-slate-900 dark:text-white font-bold text-lg mb-2">No Guardians Yet</h3>
+                                <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Add trusted addresses to secure your vault</p>
+                                <button
+                                    onClick={() => setIsAdding(true)}
+                                    className="inline-flex items-center gap-2 bg-primary hover:bg-primary-hover text-white px-5 py-2.5 rounded-xl font-bold"
+                                >
+                                    <Plus size={20} />
+                                    Add Your First Guardian
+                                </button>
+                            </div>
+                        ) : (
+                            guardians.map((g) => (
                             <div key={g.id} className="group bg-white dark:bg-surface-dark border border-slate-200 dark:border-surface-border p-5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:border-primary/50 dark:hover:border-primary/50 transition-all shadow-sm">
                                 <div className="flex items-center gap-4">
                                     <div className="size-12 rounded-full bg-slate-100 dark:bg-surface-border flex items-center justify-center text-slate-500 dark:text-slate-400 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-                                        {g.isHardware ? <Key size={20} /> : <Users size={20} />}
+                                        <Users size={20} />
                                     </div>
                                     <div>
                                         <div className="flex items-center gap-2">
                                             <h3 className="font-bold text-slate-900 dark:text-white text-lg">{g.name}</h3>
                                             {g.status === 'active' && <span className="size-2 rounded-full bg-emerald-500"></span>}
-                                            {g.isHardware && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-surface-border text-slate-500 uppercase">Hardware</span>}
                                         </div>
                                         <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 font-mono mt-0.5">
                                             {g.address}
@@ -158,20 +192,17 @@ export function ManageGuardiansView() {
                                 </div>
 
                                 <div className="flex items-center gap-4 w-full sm:w-auto mt-2 sm:mt-0 justify-between sm:justify-end">
-                                    <div className="text-right hidden sm:block">
-                                        <p className="text-xs text-slate-500 font-medium flex items-center gap-1 justify-end"><History size={12} /> Signed {g.txCount} txs</p>
-                                        <p className="text-xs text-slate-400">Last active {g.lastActive || "Never"}</p>
-                                    </div>
                                     <button
                                         onClick={() => handleRevoke(g.id)}
                                         className="flex items-center gap-2 px-4 py-2 rounded-xl text-red-500 bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors text-sm font-semibold"
                                     >
                                         <Trash2 size={16} />
-                                        <span className="sm:hidden">Revoke</span>
+                                        Revoke
                                     </button>
                                 </div>
                             </div>
-                        ))}
+                        ))
+                        )}
                     </div>
                 </div>
 
@@ -186,10 +217,13 @@ export function ManageGuardiansView() {
                         <div className="bg-black/20 rounded-xl p-4 mb-4">
                             <div className="flex justify-between items-center mb-2">
                                 <span className="text-sm text-slate-400">Current Threshold</span>
-                                <span className="text-white font-bold">2/3</span>
+                                <span className="text-white font-bold">{quorum?.toString() || "..."}/{guardians.length || "..."}</span>
                             </div>
                             <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-                                <div className="h-full bg-primary w-2/3 rounded-full"></div>
+                                <div 
+                                    className="h-full bg-primary rounded-full" 
+                                    style={{ width: quorum && guardians.length ? `${(Number(quorum) / guardians.length) * 100}%` : '66%' }}
+                                ></div>
                             </div>
                         </div>
                         <p className="text-xs text-slate-400 mb-6 leading-relaxed">
