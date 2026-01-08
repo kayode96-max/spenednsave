@@ -157,7 +157,11 @@ export function DashboardSaverView() {
                         <button className="text-primary text-sm font-medium hover:text-primary-hover">View All</button>
                     </div>
 
-                    {activities.length === 0 ? (
+                    {activitiesLoading ? (
+                        <div className="bg-surface-dark border border-surface-border rounded-2xl p-8 text-center">
+                            <p className="text-slate-400 text-sm">Loading activity...</p>
+                        </div>
+                    ) : activities.length === 0 ? (
                         <div className="bg-surface-dark border border-surface-border rounded-2xl p-8 text-center">
                             <div className="size-16 rounded-full bg-surface-border/50 flex items-center justify-center text-slate-500 mx-auto mb-4">
                                 <CreditCard size={24} />
@@ -170,7 +174,9 @@ export function DashboardSaverView() {
                             {activities.map((activity, i) => {
                                 const isDeposit = activity.type === 'deposit';
                                 const isGuardianAdded = activity.type === 'guardian_added';
-                                const amount = activity.amount ? formatEther(activity.amount) : '0';
+                                const isWithdrawal = activity.type === 'withdrawal';
+                                
+                                const amount = activity.data?.amount ? formatEther(activity.data.amount) : '0';
                                 const timeAgo = Math.floor((Date.now() - activity.timestamp) / 1000);
                                 const timeString = timeAgo < 60 ? 'Just now' : 
                                                  timeAgo < 3600 ? `${Math.floor(timeAgo / 60)}m ago` :
@@ -181,31 +187,40 @@ export function DashboardSaverView() {
                                     <div key={`${activity.blockNumber}-${i}`} className="p-4 flex items-center justify-between hover:bg-white/5 transition-colors">
                                         <div className="flex items-center gap-4">
                                             <div className={`size-10 rounded-full flex items-center justify-center ${
-                                                isDeposit ? 'bg-emerald-500/10 text-emerald-500' : 'bg-blue-500/10 text-blue-500'
+                                                isDeposit ? 'bg-emerald-500/10 text-emerald-500' : 
+                                                isWithdrawal ? 'bg-red-500/10 text-red-500' :
+                                                'bg-blue-500/10 text-blue-500'
                                             }`}>
-                                                {isDeposit ? <CreditCard size={18} /> : <Users size={18} />}
+                                                {isDeposit && <CreditCard size={18} />}
+                                                {isWithdrawal && <Lock size={18} />}
+                                                {isGuardianAdded && <Users size={18} />}
                                             </div>
                                             <div>
                                                 <p className="text-white font-medium">
-                                                    {isDeposit ? 'Deposit' : 'Guardian Added'}
+                                                    {isDeposit ? 'Deposit' : isWithdrawal ? 'Withdrawal' : 'Guardian Added'}
                                                 </p>
-                                                {isGuardianAdded && activity.guardian && (
+                                                {isGuardianAdded && activity.data?.address && (
                                                     <p className="text-slate-400 text-sm">
-                                                        You added {activity.guardian.slice(0, 6)}...{activity.guardian.slice(-4)} as guardian
+                                                        You added {activity.data.address.slice(0, 6)}...{activity.data.address.slice(-4)} as guardian
                                                     </p>
                                                 )}
-                                                {isDeposit && (
+                                                {isDeposit && activity.data?.from && (
                                                     <p className="text-slate-400 text-sm">
-                                                        {activity.from && activity.from.toLowerCase() === address?.toLowerCase() 
+                                                        {activity.data.from.toLowerCase() === address?.toLowerCase() 
                                                             ? 'You deposited to your vault' 
-                                                            : `From ${activity.from?.slice(0, 6)}...${activity.from?.slice(-4)}`}
+                                                            : `From ${activity.data.from.slice(0, 6)}...${activity.data.from.slice(-4)}`}
                                                     </p>
+                                                )}
+                                                {isWithdrawal && activity.data?.reason && (
+                                                    <p className="text-slate-400 text-sm">{activity.data.reason}</p>
                                                 )}
                                                 <p className="text-slate-500 text-xs mt-0.5">{timeString}</p>
                                             </div>
                                         </div>
-                                        {isDeposit && (
-                                            <span className="text-emerald-400 font-medium">+{parseFloat(amount).toFixed(4)} ETH</span>
+                                        {(isDeposit || isWithdrawal) && (
+                                            <span className={`font-medium ${isDeposit ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                {isDeposit ? '+' : '-'}{parseFloat(amount).toFixed(4)} ETH
+                                            </span>
                                         )}
                                     </div>
                                 );
@@ -223,9 +238,29 @@ export function DashboardSaverView() {
                                 <Users size={32} />
                             </div>
                         </div>
-                        <p className="text-slate-400 text-sm leading-relaxed text-center">
-                            {quorum ? `${quorum} of ${totalGuardians} signatures required` : "Loading guardian info..."}
-                        </p>
+                        {guardiansLoading ? (
+                            <p className="text-slate-400 text-sm leading-relaxed text-center">Loading guardians...</p>
+                        ) : (
+                            <>
+                                <p className="text-slate-400 text-sm leading-relaxed text-center">
+                                    {guardians.length > 0 
+                                        ? `${quorum ? Number(quorum) : 0} of ${totalGuardians} signatures required`
+                                        : 'No guardians added yet'}
+                                </p>
+                                {guardians.length > 0 && (
+                                    <div className="mt-4 space-y-2">
+                                        {guardians.slice(0, 3).map((guardian) => (
+                                            <div key={guardian.address} className="text-xs text-slate-500 text-center font-mono">
+                                                {guardian.address.slice(0, 6)}...{guardian.address.slice(-4)}
+                                            </div>
+                                        ))}
+                                        {guardians.length > 3 && (
+                                            <p className="text-xs text-slate-600 text-center">+{guardians.length - 3} more</p>
+                                        )}
+                                    </div>
+                                )}
+                            </>
+                        )}
                         <Link href="/guardians" className="block w-full mt-6 py-2 bg-primary hover:bg-primary-hover text-white rounded-xl text-sm font-medium transition-colors text-center">
                             Manage Guardians
                         </Link>

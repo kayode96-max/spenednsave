@@ -1,103 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { ArrowUpRight, ArrowDownLeft, Clock, CheckCircle, XCircle, ChevronDown, Filter } from "lucide-react";
-import { useAccount, usePublicClient, useBlockNumber } from "wagmi";
-import { useUserContracts, useVaultQuorum } from "@/lib/hooks/useContracts";
+import { useAccount } from "wagmi";
+import { useUserContracts } from "@/lib/hooks/useContracts";
+import { useVaultActivity } from "@/lib/hooks/useVaultData";
 import { formatEther, type Address } from "viem";
-import { SpendVaultABI } from "@/lib/abis/SpendVault";
-import { GuardianSBTABI } from "@/lib/abis/GuardianSBT";
-
-interface Activity {
-    id: string;
-    type: 'Withdrawal' | 'Deposit' | 'Guardian Added' | 'Guardian Removed';
-    amount?: bigint;
-    timestamp: number;
-    blockNumber: bigint;
-    from?: Address;
-    to?: Address;
-    guardian?: Address;
-    tokenId?: bigint;
-    txHash: string;
-}
 
 export function ActivityLogView() {
     const { address } = useAccount();
     const { data: userContracts } = useUserContracts(address as any);
     const guardianTokenAddress = userContracts ? (userContracts as any)[0] : undefined;
     const vaultAddress = userContracts ? (userContracts as any)[1] : undefined;
-    const publicClient = usePublicClient();
-    const { data: currentBlock } = useBlockNumber();
-    const { data: quorum } = useVaultQuorum(vaultAddress);
     
-    const [activities, setActivities] = useState<Activity[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const { activities, isLoading } = useVaultActivity(vaultAddress, guardianTokenAddress, 100);
     const [filterStatus, setFilterStatus] = useState<'all' | 'deposits' | 'withdrawals' | 'guardians'>('all');
-
-    // Fetch historical events
-    useEffect(() => {
-        async function fetchHistoricalEvents() {
-            if (!vaultAddress || !guardianTokenAddress || !publicClient || !currentBlock) {
-                setIsLoading(false);
-                return;
-            }
-            
-            try {
-                setIsLoading(true);
-                const fromBlock = currentBlock - 10000n > 0n ? currentBlock - 10000n : 0n;
-                
-                // Fetch deposit events
-                const depositLogs = await publicClient.getLogs({
-                    address: vaultAddress as Address,
-                    event: {
-                        type: 'event',
-                        name: 'Deposited',
-                        inputs: [
-                            { type: 'address', indexed: true, name: 'token' },
-                            { type: 'address', indexed: true, name: 'from' },
-                            { type: 'uint256', indexed: false, name: 'amount' },
-                        ],
-                    },
-                    fromBlock,
-                    toBlock: 'latest',
-                });
-
-                // Fetch guardian added events
-                const guardianAddedLogs = await publicClient.getLogs({
-                    address: guardianTokenAddress as Address,
-                    event: {
-                        type: 'event',
-                        name: 'GuardianAdded',
-                        inputs: [
-                            { type: 'address', indexed: true, name: 'guardian' },
-                            { type: 'uint256', indexed: false, name: 'tokenId' },
-                        ],
-                    },
-                    fromBlock,
-                    toBlock: 'latest',
-                });
-
-                // Fetch guardian removed events
-                const guardianRemovedLogs = await publicClient.getLogs({
-                    address: guardianTokenAddress as Address,
-                    event: {
-                        type: 'event',
-                        name: 'GuardianRemoved',
-                        inputs: [
-                            { type: 'address', indexed: true, name: 'guardian' },
-                            { type: 'uint256', indexed: false, name: 'tokenId' },
-                        ],
-                    },
-                    fromBlock,
-                    toBlock: 'latest',
-                });
-
-                const depositActivities: Activity[] = depositLogs.map((log: any) => ({
-                    id: `${log.transactionHash}-${log.logIndex}`,
-                    type: 'Deposit',
-                    from: log.args.from,
-                    amount: log.args.amount,
-                    blockNumber: log.blockNumber,
                     timestamp: Date.now() - Number(currentBlock - log.blockNumber) * 2000,
                     txHash: log.transactionHash,
                 }));
