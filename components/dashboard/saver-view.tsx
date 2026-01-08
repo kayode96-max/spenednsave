@@ -1,8 +1,9 @@
 "use client";
 
 import { Users, Lock, CreditCard, ArrowRight, ShieldCheck } from "lucide-react";
-import { useAccount, useWatchContractEvent, usePublicClient, useBlockNumber } from "wagmi";
+import { useAccount, useWatchContractEvent } from "wagmi";
 import { useDepositETH, useVaultETHBalance, useUserContracts, useVaultQuorum } from "@/lib/hooks/useContracts";
+import { useGuardians, useVaultActivity } from "@/lib/hooks/useVaultData";
 import { SpendVaultABI } from "@/lib/abis/SpendVault";
 import { GuardianSBTABI } from "@/lib/abis/GuardianSBT";
 import { formatEther, type Address } from "viem";
@@ -14,119 +15,37 @@ export function DashboardSaverView() {
     const { data: userContracts } = useUserContracts(address as any);
     const guardianTokenAddress = userContracts ? (userContracts as any)[0] : undefined;
     const vaultAddress = userContracts ? (userContracts as any)[1] : undefined;
-    const publicClient = usePublicClient();
-    const { data: currentBlock } = useBlockNumber();
     
     const { deposit, isPending, isConfirming, isSuccess, hash } = useDepositETH(vaultAddress);
     const { data: vaultBalance, refetch: refetchBalance } = useVaultETHBalance(vaultAddress);
     const { data: quorum } = useVaultQuorum(vaultAddress);
     const [depositAmount, setDepositAmount] = useState("0.01");
     const [showDepositModal, setShowDepositModal] = useState(false);
-    const [activities, setActivities] = useState<any[]>([]);
+    
+    // Use new hooks for guardians and activity
+    const { guardians, isLoading: guardiansLoading } = useGuardians(guardianTokenAddress);
+    const { activities, isLoading: activitiesLoading } = useVaultActivity(vaultAddress, guardianTokenAddress, 10);
 
-    // Fetch historical Deposited events
-    useEffect(() => {
-        async function fetchHistoricalEvents() {
-            if (!vaultAddress || !guardianTokenAddress || !publicClient || !currentBlock) return;
-            
-            try {
-                const fromBlock = currentBlock - 10000n > 0n ? currentBlock - 10000n : 0n;
-                
-                // Fetch deposit events
-                const depositLogs = await publicClient.getLogs({
-                    address: vaultAddress as Address,
-                    event: {
-                        type: 'event',
-                        name: 'Deposited',
-                        inputs: [
-                            { type: 'address', indexed: true, name: 'token' },
-                            { type: 'address', indexed: true, name: 'from' },
-                            { type: 'uint256', indexed: false, name: 'amount' },
-                        ],
-                    },
-                    fromBlock,
-                    toBlock: 'latest',
-                });
-
-                // Fetch guardian added events
-                const guardianLogs = await publicClient.getLogs({
-                    address: guardianTokenAddress as Address,
-                    event: {
-                        type: 'event',
-                        name: 'GuardianAdded',
-                        inputs: [
-                            { type: 'address', indexed: true, name: 'guardian' },
-                            { type: 'uint256', indexed: false, name: 'tokenId' },
-                        ],
-                    },
-                    fromBlock,
-                    toBlock: 'latest',
-                });
-
-                const depositActivities = depositLogs.map((log: any) => ({
-                    type: 'deposit',
-                    from: log.args.from,
-                    amount: log.args.amount,
-                    token: log.args.token,
-                    blockNumber: log.blockNumber,
-                    timestamp: Date.now() - Number(currentBlock - log.blockNumber) * 2000,
-                }));
-
-                const guardianActivities = guardianLogs.map((log: any) => ({
-                    type: 'guardian_added',
-                    guardian: log.args.guardian,
-                    tokenId: log.args.tokenId,
-                    blockNumber: log.blockNumber,
-                    timestamp: Date.now() - Number(currentBlock - log.blockNumber) * 2000,
-                }));
-
-                const allActivities = [...depositActivities, ...guardianActivities]
-                    .sort((a, b) => Number(b.blockNumber) - Number(a.blockNumber))
-                    .slice(0, 10);
-
-                setActivities(allActivities);
-            } catch (error) {
-                console.error('Error fetching historical events:', error);
-            }
-        }
-        
-        fetchHistoricalEvents();
-    }, [vaultAddress, guardianTokenAddress, publicClient, currentBlock]);
-
-    // Watch for Deposited events
+    // Watch for Deposited events in real-time
     useWatchContractEvent({
         address: vaultAddress as Address,
         abi: SpendVaultABI,
         eventName: 'Deposited',
         enabled: !!vaultAddress,
         onLogs(logs) {
-            const newActivities = logs.map(log => ({
-                type: 'deposit',
-                from: log.args.from,
-                amount: log.args.amount,
-                token: log.args.token,
-                blockNumber: log.blockNumber,
-                timestamp: Date.now(),
-            }));
-            setActivities(prev => [...newActivities, ...prev].slice(0, 10));
+            // Refetch balance when new deposits come in
+            refetchBalance();
         },
     });
 
-    // Watch for GuardianAdded events
+    // Watch for GuardianAdded events in real-time
     useWatchContractEvent({
         address: guardianTokenAddress as Address,
         abi: GuardianSBTABI,
         eventName: 'GuardianAdded',
         enabled: !!guardianTokenAddress,
         onLogs(logs) {
-            const newActivities = logs.map(log => ({
-                type: 'guardian_added',
-                guardian: log.args.guardian,
-                tokenId: log.args.tokenId,
-                blockNumber: log.blockNumber,
-                timestamp: Date.now(),
-            }));
-            setActivities(prev => [...newActivities, ...prev].slice(0, 10));
+            // Activities will auto-update via the useVaultActivity hook
         },
     });
 
@@ -153,7 +72,7 @@ export function DashboardSaverView() {
     // Format vault balance for display
     const ethBalance = vaultBalance ? formatEther(vaultBalance) : "0";
     const formattedEthBalance = parseFloat(ethBalance).toFixed(4);
-    const totalGuardians = quorum ? Number(quorum) + 1 : 3; // Estimate, can be improved
+    const totalGuardians = guardians.length;
 
     return (
         <div className="w-full flex flex-col gap-8">
