@@ -54,68 +54,78 @@ export function useGuardians(guardianTokenAddress?: Address) {
             setError(null);
 
             try {
-                // Fetch all Transfer events (mints have from=0x0)
-                const fromBlock = currentBlock - 100000n > 0n ? currentBlock - 100000n : 0n;
+                // Start from genesis or recent blocks
+                const fromBlock = 0n; // Fetch from genesis to ensure we get all events
                 
-                const transferLogs = await publicClient.getLogs({
+                console.log('[useGuardians] Fetching guardians from block', fromBlock, 'to latest');
+                console.log('[useGuardians] Guardian token address:', guardianTokenAddress);
+                
+                const addedLogs = await publicClient.getLogs({
                     address: guardianTokenAddress,
                     event: {
                         type: 'event',
-                        name: 'Transfer',
+                        name: 'GuardianAdded',
                         inputs: [
-                            { type: 'address', indexed: true, name: 'from' },
-                            { type: 'address', indexed: true, name: 'to' },
-                            { type: 'uint256', indexed: true, name: 'tokenId' },
+                            { type: 'address', indexed: true, name: 'guardian' },
+                            { type: 'uint256', indexed: false, name: 'tokenId' },
                         ],
                     },
                     fromBlock,
                     toBlock: 'latest',
                 });
 
-                // Filter for mints (from = 0x0) and check if still owned
-                const guardianMap = new Map<string, Guardian>();
+                console.log('[useGuardians] Found', addedLogs.length, 'GuardianAdded events');
 
-                for (const log of transferLogs) {
-                    const { from, to, tokenId } = log.args as any;
+                const removedLogs = await publicClient.getLogs({
+                    address: guardianTokenAddress,
+                    event: {
+                        type: 'event',
+                        name: 'GuardianRemoved',
+                        inputs: [
+                            { type: 'address', indexed: true, name: 'guardian' },
+                            { type: 'uint256', indexed: false, name: 'tokenId' },
+                        ],
+                    },
+                    fromBlock,
+                    toBlock: 'latest',
+                });
+
+                console.log('[useGuardians] Found', removedLogs.length, 'GuardianRemoved events');
+
+                // Build map of current guardians (added but not removed)
+                const guardianMap = new Map<string, Guardian>();
+                const removedSet = new Set<string>();
+
+                // Track removed guardians
+                for (const log of removedLogs) {
+                    const { guardian } = log.args as any;
+                    removedSet.add(guardian.toLowerCase());
+                }
+
+                // Add guardians that haven't been removed
+                for (const log of addedLogs) {
+                    const { guardian, tokenId } = log.args as any;
                     
-                    // Minting event
-                    if (from === '0x0000000000000000000000000000000000000000') {
+                    if (!removedSet.has(guardian.toLowerCase())) {
                         const block = await publicClient.getBlock({ blockNumber: log.blockNumber });
                         
-                        // Check if guardian still has the token
-                        try {
-                            const balance = await publicClient.readContract({
-                                address: guardianTokenAddress,
-                                abi: GuardianSBTABI,
-                                functionName: 'balanceOf',
-                                args: [to],
-                            });
-
-                            if ((balance as bigint) > 0n) {
-                                guardianMap.set(to.toLowerCase(), {
-                                    address: to as Address,
-                                    tokenId: tokenId as bigint,
-                                    addedAt: Number(block.timestamp) * 1000,
-                                    blockNumber: log.blockNumber,
-                                    txHash: log.transactionHash as Hex,
-                                });
-                            }
-                        } catch (err) {
-                            console.error('Error checking guardian balance:', err);
-                        }
-                    }
-                    // Burning event
-                    else if (to === '0x0000000000000000000000000000000000000000') {
-                        guardianMap.delete(from.toLowerCase());
+                        guardianMap.set(guardian.toLowerCase(), {
+                            address: guardian as Address,
+                            tokenId: tokenId as bigint,
+                            addedAt: Number(block.timestamp) * 1000,
+                            blockNumber: log.blockNumber,
+                            txHash: log.transactionHash as Hex,
+                        });
                     }
                 }
 
                 const guardianList = Array.from(guardianMap.values())
                     .sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber));
 
+                console.log('[useGuardians] Final guardian list:', guardianList);
                 setGuardians(guardianList);
             } catch (err) {
-                console.error('Error fetching guardians:', err);
+                console.error('[useGuardians] Error fetching guardians:', err);
                 setError(err instanceof Error ? err : new Error('Failed to fetch guardians'));
             } finally {
                 setIsLoading(false);
@@ -149,7 +159,8 @@ export function useWithdrawalHistory(vaultAddress?: Address, limit = 50) {
             setError(null);
 
             try {
-                const fromBlock = currentBlock - 100000n > 0n ? currentBlock - 100000n : 0n;
+                const fromBlock = 0n; // Fetch from genesis
+                console.log('[useWithdrawalHistory] Fetching from block', fromBlock, 'for vault:', vaultAddress);
                 
                 const withdrawalLogs = await publicClient.getLogs({
                     address: vaultAddress,
@@ -167,6 +178,7 @@ export function useWithdrawalHistory(vaultAddress?: Address, limit = 50) {
                     toBlock: 'latest',
                 });
 
+                console.log('[useWithdrawalHistory] Found', withdrawalLogs.length, 'withdrawal events');
                 const withdrawalEvents: WithdrawalEvent[] = [];
 
                 for (const log of withdrawalLogs.slice(-limit)) {
@@ -220,7 +232,8 @@ export function useDepositHistory(vaultAddress?: Address, limit = 50) {
             setError(null);
 
             try {
-                const fromBlock = currentBlock - 100000n > 0n ? currentBlock - 100000n : 0n;
+                const fromBlock = 0n; // Fetch from genesis
+                console.log('[useDepositHistory] Fetching from block', fromBlock, 'for vault:', vaultAddress);
                 
                 const depositLogs = await publicClient.getLogs({
                     address: vaultAddress,
@@ -237,6 +250,7 @@ export function useDepositHistory(vaultAddress?: Address, limit = 50) {
                     toBlock: 'latest',
                 });
 
+                console.log('[useDepositHistory] Found', depositLogs.length, 'deposit events');
                 const depositEvents: DepositEvent[] = [];
 
                 for (const log of depositLogs.slice(-limit)) {
@@ -280,6 +294,11 @@ export function useVaultActivity(vaultAddress?: Address, guardianTokenAddress?: 
     const isLoading = depositsLoading || withdrawalsLoading || guardiansLoading;
 
     useEffect(() => {
+        console.log('[useVaultActivity] Combining activities...');
+        console.log('[useVaultActivity] deposits:', deposits.length);
+        console.log('[useVaultActivity] withdrawals:', withdrawals.length);
+        console.log('[useVaultActivity] guardians:', guardians.length);
+        
         const allActivities = [
             ...deposits.map(d => ({
                 type: 'deposit' as const,
@@ -302,7 +321,9 @@ export function useVaultActivity(vaultAddress?: Address, guardianTokenAddress?: 
         ];
 
         allActivities.sort((a, b) => b.timestamp - a.timestamp);
-        setActivities(allActivities.slice(0, limit));
+        const limited = allActivities.slice(0, limit);
+        console.log('[useVaultActivity] Final activities:', limited.length);
+        setActivities(limited);
     }, [deposits, withdrawals, guardians, limit]);
 
     return { activities, isLoading };

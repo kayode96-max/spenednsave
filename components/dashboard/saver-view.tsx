@@ -23,8 +23,18 @@ export function DashboardSaverView() {
     const [showDepositModal, setShowDepositModal] = useState(false);
     
     // Use new hooks for guardians and activity
-    const { guardians, isLoading: guardiansLoading } = useGuardians(guardianTokenAddress);
+    const { guardians, isLoading: guardiansLoading, error: guardiansError } = useGuardians(guardianTokenAddress);
     const { activities, isLoading: activitiesLoading } = useVaultActivity(vaultAddress, guardianTokenAddress, 10);
+
+    // Debug logging
+    useEffect(() => {
+        console.log('[DashboardSaverView] guardianTokenAddress:', guardianTokenAddress);
+        console.log('[DashboardSaverView] vaultAddress:', vaultAddress);
+        console.log('[DashboardSaverView] guardians:', guardians);
+        console.log('[DashboardSaverView] guardiansLoading:', guardiansLoading);
+        console.log('[DashboardSaverView] guardiansError:', guardiansError);
+        console.log('[DashboardSaverView] activities:', activities);
+    }, [guardianTokenAddress, vaultAddress, guardians, guardiansLoading, guardiansError, activities]);
 
     // Watch for Deposited events in real-time
     useWatchContractEvent({
