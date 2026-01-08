@@ -188,7 +188,12 @@ export function ManageGuardiansView() {
                     )}
 
                     <div className="flex flex-col gap-4">
-                        {guardians.length === 0 ? (
+                        {isLoadingGuardians ? (
+                            <div className="bg-white dark:bg-surface-dark border border-slate-200 dark:border-surface-border rounded-2xl p-12 text-center">
+                                <Spinner className="w-8 h-8 text-primary mx-auto mb-4" />
+                                <p className="text-slate-500">Loading guardians...</p>
+                            </div>
+                        ) : guardiansList.length === 0 ? (
                             <div className="bg-white dark:bg-surface-dark border border-slate-200 dark:border-surface-border rounded-2xl p-12 text-center">
                                 <div className="size-16 rounded-full bg-slate-100 dark:bg-surface-border/50 flex items-center justify-center text-slate-400 mx-auto mb-4">
                                     <Users size={32} />
@@ -204,26 +209,31 @@ export function ManageGuardiansView() {
                                 </button>
                             </div>
                         ) : (
-                            guardians.map((g) => (
-                            <div key={g.id} className="group bg-white dark:bg-surface-dark border border-slate-200 dark:border-surface-border p-5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:border-primary/50 dark:hover:border-primary/50 transition-all shadow-sm">
+                            guardiansList.map((guardian) => (
+                            <div key={guardian.address} className="group bg-white dark:bg-surface-dark border border-slate-200 dark:border-surface-border p-5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:border-primary/50 dark:hover:border-primary/50 transition-all shadow-sm">
                                 <div className="flex items-center gap-4">
                                     <div className="size-12 rounded-full bg-slate-100 dark:bg-surface-border flex items-center justify-center text-slate-500 dark:text-slate-400 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-                                        <Users size={20} />
+                                        <ShieldCheck size={20} />
                                     </div>
                                     <div>
                                         <div className="flex items-center gap-2">
-                                            <h3 className="font-bold text-slate-900 dark:text-white text-lg">{g.name}</h3>
-                                            {g.status === 'active' && <span className="size-2 rounded-full bg-emerald-500"></span>}
+                                            <h3 className="font-bold text-slate-900 dark:text-white text-lg">
+                                                Guardian #{guardian.tokenId.toString()}
+                                            </h3>
+                                            <span className="size-2 rounded-full bg-emerald-500"></span>
                                         </div>
                                         <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 font-mono mt-0.5">
-                                            {g.address}
+                                            {guardian.address}
                                         </div>
+                                        <p className="text-xs text-slate-400 mt-1">
+                                            Added {new Date(guardian.addedAt).toLocaleDateString()}
+                                        </p>
                                     </div>
                                 </div>
 
                                 <div className="flex items-center gap-4 w-full sm:w-auto mt-2 sm:mt-0 justify-between sm:justify-end">
                                     <button
-                                        onClick={() => handleRevoke(g.id)}
+                                        onClick={() => handleRevoke(guardian.tokenId)}
                                         className="flex items-center gap-2 px-4 py-2 rounded-xl text-red-500 bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors text-sm font-semibold"
                                     >
                                         <Trash2 size={16} />
@@ -247,7 +257,7 @@ export function ManageGuardiansView() {
                         <div className="bg-black/20 rounded-xl p-4 mb-4">
                             <div className="flex justify-between items-center mb-2">
                                 <span className="text-sm text-slate-400">Current Threshold</span>
-                                <span className="text-white font-bold">{quorum?.toString() || "..."}/{guardians.length || "..."}</span>
+                                <span className="text-white font-bold">{quorum?.toString() || "..."}/{guardianCount || "..."}</span>
                             </div>
                             <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
                                 <div 
